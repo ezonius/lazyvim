@@ -9,6 +9,8 @@
 #   LAZYVIM_REPO=https://github.com/ezonius/lazyvim.git   git remote to install
 #   LAZYVIM_BRANCH=<default>                              branch or tag (default: remote HEAD)
 #   NVIM_CONFIG=~/.config/nvim                            target config directory
+#   LAZYVIM_FONT=FiraCode                                 Nerd Font family to install
+#   NO_FONT=1                                             skip the Nerd Font
 #   DRY_RUN=1                                             show what would happen only
 #   SKIP_PLUGINS=1                                        skip `Lazy! sync` at the end
 # ---------------------------------------------------------------------------
@@ -17,6 +19,8 @@ set -euo pipefail
 REPO="${LAZYVIM_REPO:-https://github.com/ezonius/lazyvim.git}"
 BRANCH="${LAZYVIM_BRANCH:-}"
 MIN_NVIM="${LAZYVIM_MIN_NVIM:-0.11.0}"
+FONT_FAMILY="${LAZYVIM_FONT:-FiraCode}"
+NO_FONT="${NO_FONT:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 SKIP_PLUGINS="${SKIP_PLUGINS:-0}"
 
@@ -57,7 +61,7 @@ CONFIG_DIR="${NVIM_CONFIG:-${XDG_CONFIG_HOME:-$TARGET_HOME/.config}/nvim}"
 command -v apt-get >/dev/null 2>&1 || die "this installer targets apt (Debian/Ubuntu); install git/neovim/rg/fd manually"
 
 missing=()
-for pkg in git curl ca-certificates unzip ripgrep fd-find build-essential; do
+for pkg in git curl ca-certificates unzip ripgrep fd-find build-essential fontconfig; do
   if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
     missing+=("$pkg")
   fi
@@ -107,6 +111,38 @@ if [ "$have_nvim" -eq 0 ]; then
     $SUDO tar -xzf "$tmp/nvim.tar.gz" -C /opt
     $SUDO mv "/opt/${asset}" /opt/nvim
     $SUDO ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
+  fi
+  rm -rf "$tmp"
+fi
+
+# --- nerd font -------------------------------------------------------------
+if [ "$NO_FONT" = 1 ]; then
+  note "skipping Nerd Font ($FONT_FAMILY)"
+else
+  font_dir="$TARGET_HOME/.local/share/fonts"
+  log "installing Nerd Font '$FONT_FAMILY' -> $font_dir"
+  tmp="$(mktemp -d)"
+  run curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${FONT_FAMILY}.zip" -o "$tmp/font.zip"
+  if [ "$DRY_RUN" = 1 ]; then
+    note "[dry-run] extract *.ttf to $font_dir and run fc-cache -f"
+  else
+    mkdir -p "$font_dir"
+    unzip -o -q "$tmp/font.zip" -d "$tmp/font"
+    count=0
+    while IFS= read -r -d '' file; do
+      cp -f "$file" "$font_dir/"
+      count=$((count + 1))
+    done < <(find "$tmp/font" -type f \( -iname '*.ttf' -o -iname '*.otf' \) -print0)
+    [ "$count" -gt 0 ] || warn "no font files found in ${FONT_FAMILY}.zip"
+    if [ -n "$TARGET_USER" ]; then
+      chown -R "$TARGET_USER:$TARGET_USER" "$font_dir"
+    fi
+    if command -v fc-cache >/dev/null 2>&1; then
+      fc-cache -f "$font_dir" >/dev/null 2>&1 || warn "fc-cache failed"
+    else
+      warn "fontconfig not found - run 'fc-cache -f' yourself"
+    fi
+    log "$count font files installed - pick '${FONT_FAMILY} Nerd Font' in your terminal"
   fi
   rm -rf "$tmp"
 fi

@@ -1,8 +1,8 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Installs Git, Neovim, ripgrep and fd, then clones the LazyVim setup into
-  %LOCALAPPDATA%\nvim.
+  Installs Git, Neovim, ripgrep, fd and a Nerd Font, then clones the LazyVim
+  setup into %LOCALAPPDATA%\nvim.
 
 .DESCRIPTION
   Uses winget when it is available and falls back to portable GitHub builds,
@@ -25,6 +25,8 @@ param(
   [string]$Destination = (Join-Path $env:LOCALAPPDATA "nvim"),
   [switch]$BuildTools,
   [switch]$NoPlugins,
+  [string]$FontFamily = "FiraCode",
+  [switch]$NoFont,
   [switch]$DryRun
 )
 
@@ -149,6 +151,67 @@ function Ensure-Tool {
   return $true
 }
 
+function Register-FontForCurrentSession([string[]]$Paths) {
+  try {
+    if (-not ("LazyVim.FontNative" -as [type])) {
+      Add-Type -Namespace LazyVim -Name FontNative -MemberDefinition @"
+[System.Runtime.InteropServices.DllImport("gdi32.dll", EntryPoint = "AddFontResourceW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int AddFontResource(string lpFileName);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern int SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.IntPtr wParam, System.IntPtr lParam, uint fuFlags, uint uTimeout, out System.IntPtr lpdwResult);
+"@
+    }
+    foreach ($path in $Paths) { [void][LazyVim.FontNative]::AddFontResource($path) }
+    $result = [System.IntPtr]::Zero
+    [void][LazyVim.FontNative]::SendMessageTimeout([System.IntPtr]0xffff, 0x001D, [System.IntPtr]::Zero, [System.IntPtr]::Zero, 2, 1000, [ref]$result)
+  }
+  catch {
+    Write-Note "registered for the next login only ($($_.Exception.Message))"
+  }
+}
+
+function Install-NerdFont([string]$Family) {
+  $fontDir = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\Fonts"
+  Write-Step "installing Nerd Font '$Family' into $fontDir"
+  if ($script:DryRunMode) {
+    Write-Note "[dry-run] download $Family.zip from ryanoasis/nerd-fonts and register it for the current user"
+    return
+  }
+
+  $url = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/$Family.zip"
+  $tmp = Join-Path ([IO.Path]::GetTempPath()) ("lazyvim-font-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+  try {
+    Write-Note "downloading $url (FiraCode is ~29 MB, Hack ~19 MB, JetBrainsMono ~130 MB)"
+    $zip = Join-Path $tmp "font.zip"
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    $extract = Join-Path $tmp "font"
+    Expand-Archive -Path $zip -DestinationPath $extract -Force
+    New-Item -ItemType Directory -Path $fontDir -Force | Out-Null
+
+    $fonts = @(Get-ChildItem -Path $extract -Recurse -File | Where-Object { $_.Extension -in ".ttf", ".otf" })
+    if ($fonts.Count -eq 0) { throw "no .ttf/.otf files inside $Family.zip" }
+
+    $registry = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+    if (-not (Test-Path $registry)) { New-Item -Path $registry -Force | Out-Null }
+
+    $installed = @()
+    foreach ($font in $fonts) {
+      $target = Join-Path $fontDir $font.Name
+      Copy-Item -Path $font.FullName -Destination $target -Force
+      $kind = if ($font.Extension -eq ".otf") { "OpenType" } else { "TrueType" }
+      New-ItemProperty -Path $registry -Name "$($font.BaseName) ($kind)" -Value $target -PropertyType String -Force | Out-Null
+      $installed += $target
+    }
+
+    Register-FontForCurrentSession -Paths $installed
+    Write-Note "$($installed.Count) font files installed - restart your terminal and pick '$Family Nerd Font'"
+  }
+  finally {
+    Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
 # --- prerequisites ---------------------------------------------------------
 Write-Step "checking prerequisites (git, neovim, ripgrep, fd)"
 
@@ -175,6 +238,13 @@ Ensure-Tool -Command "fd" -DisplayName "fd" -WingetId "sharkdp.fd" -Hint "instal
 if ($BuildTools) {
   Write-Step "installing LLVM (C compiler for tree-sitter parsers)"
   Install-WingetPackage "LLVM.LLVM" | Out-Null
+}
+
+if ($NoFont) {
+  Write-Note "skipping Nerd Font ($FontFamily)"
+}
+else {
+  Install-NerdFont $FontFamily
 }
 
 # --- configuration ---------------------------------------------------------
@@ -241,4 +311,4 @@ else {
 Write-Step "done"
 Write-Note "config: $Destination"
 Write-Note "start:  nvim"
-Write-Note "optional: install a Nerd Font (e.g. winget install DEVCOM.JetBrainsMonoNerdFont) and set it in your terminal"
+if (-not $NoFont) { Write-Note "set '$FontFamily Nerd Font' as the font in Windows Terminal (Settings > Profiles > Defaults > Appearance)" }

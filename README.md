@@ -42,6 +42,8 @@ Useful flags / environment variables:
 | `-Destination <dir>` | `NVIM_CONFIG=<dir>` | install somewhere else |
 | `-Repo`, `-Branch` | `LAZYVIM_REPO`, `LAZYVIM_BRANCH` | install another remote/branch |
 | `-BuildTools` | (build-essential, always) | install LLVM for tree-sitter parsers |
+| `-FontFamily <name>` | `LAZYVIM_FONT=<name>` | Nerd Font family (default `FiraCode`) |
+| `-NoFont` | `NO_FONT=1` | skip the Nerd Font |
 
 Manual install: clone this repo into `%LOCALAPPDATA%\nvim` (Windows) or
 `~/.config/nvim` (Linux) and start Neovim.
@@ -51,5 +53,9 @@ Manual install: clone this repo into `%LOCALAPPDATA%\nvim` (Windows) or
 - Neovim 0.11+ (the Linux script installs the official tarball, since apt's
   version is too old)
 - git, ripgrep, fd (`fdfind` on Debian, symlinked to `fd` by the script)
-- optional: a Nerd Font for icons, `lazygit` for `<leader>gg*`,
-  `node`/`python` for some LSP servers installed through `:Mason`
+- a Nerd Font for icons: `FiraCode Nerd Font` is installed by default
+  (`LAZYVIM_FONT`/`-FontFamily` picks another family, `NO_FONT`/`-NoFont` skips it;
+  then select it in your terminal, e.g. Windows Terminal > Profiles > Defaults >
+  Appearance > Font face)
+- optional: `lazygit` for `<leader>gg*`, `node`/`python` for some LSP servers
+  installed through `:Mason`
